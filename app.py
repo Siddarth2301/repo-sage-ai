@@ -1,3 +1,5 @@
+import os
+import re
 import streamlit as st
 from services.git_service import get_remote_branches
 from services.repository_service import clone_repository, validate_local_repository
@@ -14,6 +16,17 @@ from services.analyzer_service import (
 from services.enterprise_prompt_builder import (
     build_enterprise_prompt
 )
+
+from services.test_output_parser import (
+    parse_generated_test_files
+)
+
+from services.insights_renderer import (
+    build_structured_summary_prompt,
+    render_project_insights,
+)
+
+from services.navbar import render_navbar, show_coming_soon_if_needed
 
 
 from services.ftl_extractor_service import (
@@ -43,10 +56,88 @@ st.set_page_config(page_title="RepoSage AI", layout="wide")
 if "repo_loaded" not in st.session_state:
     st.session_state["repo_loaded"] = False
 
-st.title("RepoSage AI")
-st.caption("AI-Powered Repository Intelligence Platform")
+render_navbar()
+show_coming_soon_if_needed()
+
+if st.session_state.get("repo_loaded"):
+    st.caption(
+        f"Workspace · {st.session_state.get('repo_name', 'repository')} · "
+        "AI-Powered Repository Intelligence"
+    )
+else:
+    st.caption("AI-Powered Repository Intelligence Platform · Load a repository to begin")
 
 st.markdown("---")
+
+
+def render_markdown_with_code(md_text):
+    """Render markdown while extracting fenced code blocks as separate st.code boxes.
+
+    This prevents very long code/JSON blocks from overflowing column width and makes them
+    scrollable and nicely formatted.
+    """
+    if not md_text:
+        return
+
+    # Find fenced code blocks (```lang\n...\n```) and split
+    parts = re.split(r"(```[\s\S]*?```)", md_text)
+
+    for part in parts:
+        if part.startswith("```") and part.endswith("```"):
+            # strip backticks
+            inner = part.strip().strip("`")
+            # first word might be language
+            lines = inner.splitlines()
+            if len(lines) == 0:
+                continue
+            lang = lines[0].strip()
+            code = "\n".join(lines[1:]) if len(lines) > 1 else ""
+            # show code with language if possible
+            try:
+                if code:
+                    st.code(code, language=lang if lang else None)
+            except Exception:
+                st.code(code)
+        else:
+            # regular markdown
+            if part.strip():
+                st.markdown(part)
+
+
+def render_generated_test_files(generated_files, raw_content=""):
+    """Render parsed test files from session state (survives widget reruns)."""
+    if not generated_files and not raw_content:
+        return
+
+    with st.expander("Generated Test Files", expanded=True):
+        if generated_files:
+            st.success(
+                f"Parsed {len(generated_files)} Java test file(s). "
+                "Copy into your project or download below."
+            )
+            for idx, (path, source) in enumerate(generated_files):
+                with st.expander(path, expanded=False):
+                    st.code(source, language="java")
+                    st.download_button(
+                        label=f"Download {os.path.basename(path)}",
+                        data=source,
+                        file_name=os.path.basename(path),
+                        mime="text/x-java-source",
+                        key=f"dl_test_{idx}",
+                    )
+        else:
+            st.warning(
+                "Could not parse test files from the model response. "
+                "Expected `===FILE: src/test/java/...===` blocks. "
+                "Show raw output to debug."
+            )
+            show_raw = st.checkbox(
+                "Show raw model output",
+                value=True,
+                key="show_raw_test_output",
+            )
+            if show_raw:
+                render_markdown_with_code(raw_content)
 
 
 def show_repository_input():
@@ -75,7 +166,7 @@ def show_repository_input():
         st.markdown("<div class='card'>", unsafe_allow_html=True)
 
         st.markdown(
-            "<div class='section-title'>📂 Repository Input</div>",
+            "<div class='section-title'> Repository Input</div>",
             unsafe_allow_html=True,
         )
 
@@ -199,7 +290,7 @@ def show_repository_input():
 
     with col2:
         st.markdown(
-            "<div class='section-title'>🚀 About RepoSage AI</div>", unsafe_allow_html=True
+            "<div class='section-title'>About RepoSage AI</div>", unsafe_allow_html=True
         )
 
         st.markdown(
@@ -210,7 +301,7 @@ def show_repository_input():
             The platform analyzes repositories and automatically generates
             engineering artifacts such as:
 
-            ### 🤖 AI Generated Outputs
+            ### AI Generated Outputs
             - Functional Test Cases
             - Edge Cases
             - Risk Analysis
@@ -218,18 +309,18 @@ def show_repository_input():
             - README Documentation
             - API Discovery
 
-            ### ⚡ Core Capabilities
+            ### Core Capabilities
             - Repository Analysis
             - Branch-Aware Processing
             - Technology Detection
             - Framework Identification
             - AI-Powered SDLC Acceleration
 
-            ### 🛠 Supported Inputs
+            ### Supported Inputs
             - Git Repositories
             - Local Repository Paths
 
-            ### 🎯 Target Users
+            ### Target Users
             - QA Engineers
             - Developers
             - DevOps Teams
@@ -239,7 +330,7 @@ def show_repository_input():
         )
 
         st.markdown("---")
-        st.markdown("### 🔄 Workflow")
+        st.markdown("### Workflow")
         st.code(
             """
         Input Repository
@@ -256,10 +347,11 @@ def show_repository_input():
 
 
 def show_workspace():
-    col1, col2, col3 = st.columns([1, 1.2, 1])
+    # Give more room to the AI workspace and the insights column
+    col1, col2, col3 = st.columns([1, 1.85, 1.35])
 
     with col1:
-        st.subheader("📁 Repository Explorer")
+        st.subheader(" Repository Explorer")
 
         def render_tree(nodes, level=0):
             for node in nodes:
@@ -271,7 +363,7 @@ def show_workspace():
                         render_tree(children, level + 1)
                 else:
                     st.markdown(
-                        f"{'&nbsp;' * (level * 4)}📄 {label.replace('📄 ', '')}",
+                        f"{'&nbsp;' * (level * 4)} {label.replace('📄 ', '')}",
                         unsafe_allow_html=True,
                     )
 
@@ -283,182 +375,10 @@ def show_workspace():
 
     with col2:
 
-        st.subheader("🤖 Repository Traversal")
-
-        if st.button(
-            "Analyze FTL Context",
-            use_container_width=True
-        ):
-        
-            with st.spinner(
-                "Analyzing FTL templates..."
-            ):
-
-                try:
-
-                    repo_path = st.session_state[
-                        "repo_path"
-                    ]
-
-                    ftl_context = extract_ftl_context(
-                        repo_path
-                    )
-
-                    # ======================================
-                    # FTL FILES
-                    # ======================================
-
-                    st.markdown("## FTL Files")
-
-                    for file in ftl_context[
-                        "ftl_files"
-                    ]:
-
-                        st.success(file)
-
-                    # ======================================
-                    # VARIABLES
-                    # ======================================
-
-                    st.markdown("## Variables")
-
-                    for variable in ftl_context[
-                        "variables"
-                    ]:
-
-                        st.code(variable)
-
-                    # ======================================
-                    # GRAPHQL OPERATIONS
-                    # ======================================
-
-                    st.markdown(
-                        "## GraphQL Operations"
-                    )
-
-                    for operation in ftl_context[
-                        "graphql_operations"
-                    ]:
-
-                        st.info(operation)
-
-                    # ======================================
-                    # FIELD MAPPINGS
-                    # ======================================
-
-                    st.markdown("## Field Mappings")
-
-                    for mapping in ftl_context[
-                        "field_mappings"
-                    ]:
-
-                        st.text(mapping)
-
-                    # ======================================
-                    # CONDITIONS
-                    # ======================================
-
-                    st.markdown("## Conditions")
-
-                    for condition in ftl_context[
-                        "conditions"
-                    ]:
-
-                        st.warning(condition)
-
-                except Exception as e:
-
-                    st.error(str(e))
-            
-
-        if st.button(
-            "Analyze Repository Traversal",
-            use_container_width=True
-        ):
-        
-
-            with st.spinner(
-                "Traversing repository..."
-            ):
-
-                try:
-
-                    repo_path = st.session_state[
-                        "repo_path"
-                    ]
-
-                    traversal_context = traverse_repository(
-                        repo_path
-                    )
-
-                    # ======================================
-                    # CONTROLLERS
-                    # ======================================
-
-                    st.markdown("## Controllers")
-
-                    for controller in traversal_context[
-                        "controllers"
-                    ]:
-
-                        st.success(controller)
-
-                    # ======================================
-                    # IMPORTS
-                    # ======================================
-
-                    st.markdown("## Imports")
-
-                    for imp in traversal_context[
-                        "imports"
-                    ]:
-
-                        st.code(imp)
-
-                    # ======================================
-                    # UTILITY CLASSES
-                    # ======================================
-
-                    st.markdown("## Utility Classes")
-
-                    for cls in traversal_context[
-                        "utility_classes"
-                    ]:
-
-                        st.info(cls)
-
-                    # ======================================
-                    # METHOD CALLS
-                    # ======================================
-
-                    st.markdown("## Method Calls")
-
-                    for method in traversal_context[
-                        "method_calls"
-                    ]:
-
-                        st.text(method)
-
-                    # ======================================
-                    # WORKFLOW OBJECTS
-                    # ======================================
-
-                    st.markdown("## Workflow Objects")
-
-                    for workflow in traversal_context[
-                        "workflow_objects"
-                    ]:
-
-                        st.warning(workflow)
-
-                except Exception as e:
-
-                    st.error(str(e))
-
-        st.subheader("🤖 AI Workspace")
+        st.subheader(" AI Workspace")
 
         st.info(
-            "AI-generated test cases will appear here."
+            "AI-generated executable Java test files will appear here."
         )
 
         if st.button(
@@ -517,7 +437,9 @@ def show_workspace():
                         traversal_context,
                         ftl_context,
                         technologies,
-                        endpointDetails
+                        endpointDetails,
+                        repo_name=st.session_state.get("repo_name"),
+                        build_tool=st.session_state.get("build_tool"),
                     )
 
                     # OPTIONAL DEBUG
@@ -527,31 +449,60 @@ def show_workspace():
                     # GENERATE TEST CASES
                     # ======================================
 
-                    result = generate_test_cases(
-                        prompt
-                    )
+                    # Single LLM call that returns markdown for the detected endpoints
+                    result = generate_test_cases(prompt)
 
-                    with st.expander(
-                        "📋 Generated Test Cases",
-                        expanded=False
-                    ):
+                    try:
+                        summary_prompt_str = build_structured_summary_prompt(
+                            repo_name=st.session_state.get("repo_name"),
+                            technologies=technologies,
+                            api_style=st.session_state.get("api_style"),
+                            build_tool=st.session_state.get("build_tool"),
+                            endpoint_details=endpointDetails,
+                            traversal_context=traversal_context,
+                            ftl_context=ftl_context,
+                            repo_path=repo_path,
+                            repo_stats=st.session_state.get("repo_stats"),
+                        )
+                        project_summary = generate_test_cases(summary_prompt_str)
+                        st.session_state["project_summary"] = project_summary
+                    except Exception as e:
+                        st.session_state["project_summary"] = f"Project summary generation failed: {e}"
 
-                        st.markdown(result)
+                    content = result or ""
+                    generated_files = parse_generated_test_files(content)
+                    st.session_state["generated_test_files"] = generated_files
+                    st.session_state["generated_test_raw"] = content
 
                 except Exception as e:
 
                     st.error(str(e))
-    with col3:
-        st.subheader("📊 Repository Insights")
-        technologies = st.session_state.get("technologies", {})
 
+        render_generated_test_files(
+            st.session_state.get("generated_test_files"),
+            st.session_state.get("generated_test_raw", ""),
+        )
+    with col3:
+        st.subheader(" Repository Insights")
+
+        project_summary = st.session_state.get("project_summary")
+        if project_summary:
+            render_project_insights(
+                project_summary,
+                repo_name=st.session_state.get("repo_name"),
+            )
+
+        st.markdown("---")
+        st.markdown("##### Detected Technologies")
+
+        technologies = st.session_state.get("technologies", {})
         for category, techs in technologies.items():
-            st.markdown(f"### {category.title()}")
-            if techs:
-                for tech in techs:
-                    st.success(tech)
-            else:
-                st.caption("Not Detected")
+            with st.expander(category.title(), expanded=False):
+                if techs:
+                    for tech in techs:
+                        st.success(tech)
+                else:
+                    st.caption("Not detected")
 
 
 if not st.session_state["repo_loaded"]:

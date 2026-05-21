@@ -37,7 +37,7 @@ def generate_test_cases(prompt):
                 "content": prompt
             }
         ],
-        "max_tokens": 1200,
+        "max_tokens": 16000,
     }
 
     response = requests.post(

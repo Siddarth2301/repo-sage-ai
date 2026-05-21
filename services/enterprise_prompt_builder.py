@@ -1,128 +1,76 @@
+import os
+
+
+def _load_base_prompt() -> str:
+    root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..")
+    )
+    prompt_path = os.path.join(root, "prompt.txt")
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
 def build_enterprise_prompt(
     traversal_context,
     ftl_context,
     technologies,
-    endpoint_details
+    endpoint_details,
+    repo_name=None,
+    build_tool=None,
 ):
-    
     formatted_endpoints = "\n".join(
-    [
-        f"{e['method']} {e['path']}"
-        for e in endpoint_details
-    ]
-)
+        f"- {e['method']} {e['path']}" for e in endpoint_details
+    ) or "- (none detected — derive tests from controllers only)"
 
-    prompt = f"""
-You are an enterprise QA automation architect.
+    controllers = traversal_context.get("controllers", [])[:30]
+    utility_classes = traversal_context.get("utility_classes", [])[:40]
+    workflow_objects = traversal_context.get("workflow_objects", [])[:30]
+    imports_sample = traversal_context.get("imports", [])[:50]
+    method_calls_sample = traversal_context.get("method_calls", [])[:50]
 
-Analyze the following Spring Boot banking application context
-and generate enterprise-grade test cases.
+    graphql_ops = ftl_context.get("graphql_operations", [])[:20]
+    ftl_variables = ftl_context.get("variables", [])[:15]
 
-==================================================
-APPLICATION ARCHITECTURE
-==================================================
+    base = _load_base_prompt()
 
-This application follows:
+    context = f"""
+================================================================================
+REPOSITORY CONTEXT
+================================================================================
 
-- Workflow-driven architecture
-- POST-based orchestration APIs
-- Hasura GraphQL persistence
-- FTL-based payload transformation
-- Utility-driven execution model
-- Enterprise approval workflows
-- Entitlement validation model
+Repository: {repo_name or "unknown"}
+Build tool: {build_tool or "unknown"}
 
-DO NOT assume traditional CRUD APIs.
-
-==================================================
-STRICT RULES
-==================================================
-
-1. ONLY generate test cases for detected endpoints
-2. DO NOT invent APIs
-3. DO NOT assume GET/PUT/DELETE APIs unless detected
-4. DO NOT assume CRUD architecture
-5. APIs are orchestration-based workflow APIs
-6. Persistence happens through Hasura GraphQL
-7. Generate ONLY repository-relevant test cases
-
-==================================================
-TECH STACK
-==================================================
-
+Tech stack (detected):
 {technologies}
 
-==================================================
-DETECTED ENDPOINTS
-==================================================
-
+Detected endpoints (generate tests ONLY for these unless controller code implies additional mapped paths):
 {formatted_endpoints}
 
-==================================================
-CONTROLLERS
-==================================================
+Controller / handler files:
+{controllers}
 
-{traversal_context.get("controllers", [])}
+Sample imports (use to infer dependencies and enterprise utilities):
+{imports_sample}
 
-==================================================
-UTILITY CLASSES
-==================================================
+Instantiated utility / collaborator classes (from `new ClassName(`):
+{utility_classes}
 
-{traversal_context.get("utility_classes", [])}
+Sample method calls (`.methodName(`):
+{method_calls_sample}
 
+Workflow-related identifiers:
+{workflow_objects}
 
-==================================================
-WORKFLOW OBJECTS
-==================================================
+GraphQL operations (from FTL):
+{graphql_ops}
 
-{traversal_context.get("workflow_objects", [])}
+FTL variables (sample):
+{ftl_variables}
 
-==================================================
-GRAPHQL OPERATIONS
-==================================================
-
-{ftl_context.get("graphql_operations", [])}
-
-==================================================
-FTL VARIABLES
-==================================================
-
-{ftl_context.get("variables", [])[:5]}
-
-==================================================
-
-Generate:
-
-1. Functional Test Cases
-2. Negative Test Cases
-3. Edge Cases
-4. Workflow Validation Tests
-5. Entitlement Validation Tests
-6. GraphQL Validation Tests
-7. Payload Transformation Tests
-8. Approval Flow Test Cases
-
-IMPORTANT:
-- Generate tests ONLY for detected endpoints
-- Do NOT create imaginary APIs
-- Use actual workflow terminology from the repository
-- Respect orchestration architecture
-- Respect Hasura-driven persistence architecture
-
-OUTPUT FORMAT:
-
-For every endpoint generate:
-
-- Functional Tests
-- Negative Tests
-- Workflow Tests
-- Entitlement Tests
-- Payload Transformation Tests
-
-Do NOT generate generic banking CRUD APIs.
-
-Return the output in clean markdown format.
-
+================================================================================
+END OF CONTEXT — produce 5–6 ===FILE: blocks now. No other output.
+================================================================================
 """
 
-    return prompt
+    return f"{base}\n\n{context}"
