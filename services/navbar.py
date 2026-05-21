@@ -97,7 +97,7 @@ def request_coming_soon(menu_label: str) -> None:
 
 def _coming_soon_dialog_body() -> None:
     menu = st.session_state.get("coming_soon_menu", "This feature")
-    st.markdown(f"### 🚧 {menu}")
+    st.markdown(f"### {menu}")
     st.markdown(
         "This section is under development and will be available in a future release."
     )
@@ -177,26 +177,26 @@ def render_navbar() -> None:
 
     with brand_col:
         st.markdown(
-            '<p class="reposage-menubar-brand">🧠 <span>RepoSage</span> AI</p>',
+            '<p class="reposage-menubar-brand"> <span>RepoSage</span> AI</p>',
             unsafe_allow_html=True,
         )
 
     with home_col:
-        if _tertiary_button("🏠 Home", "nav_home"):
+        if _tertiary_button(" Home", "nav_home"):
             navigate_home()
             st.rerun()
 
     with analyze_col:
-        _menubar_click("🔬 Analyze", "Analyze", key="nav_analyze")
+        _menubar_click(" Analyze", "Analyze", key="nav_analyze")
 
     with insights_col:
-        _menubar_click("📊 Insights", "Insights", key="nav_insights")
+        _menubar_click(" Insights", "Insights", key="nav_insights")
 
     with settings_col:
         settings_open = st.session_state.get("settings_menu_open", False)
         if settings_open:
             st.markdown('<div class="reposage-settings-open"></div>', unsafe_allow_html=True)
-        settings_label = "⚙️ Settings ▾"
+        settings_label = " Settings ▾"
         if _tertiary_button(settings_label, "nav_settings"):
             st.session_state["settings_menu_open"] = not settings_open
             st.rerun()

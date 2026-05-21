@@ -3,3 +3,6 @@ GitPython
 
 requests
 python-dotenv
+
+pandas
+numpy
